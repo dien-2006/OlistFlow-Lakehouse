@@ -1,0 +1,9 @@
+[tool.black]
+line-length = 88
+target-version = ["py310"]
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
+markers = [
+    "integration: requires running MinIO and Iceberg REST services",
+]

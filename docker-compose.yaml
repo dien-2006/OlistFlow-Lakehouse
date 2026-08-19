@@ -1,0 +1,118 @@
+services:
+  spark-iceberg:
+    build:
+      context: .
+      dockerfile: Dockerfile.spark
+
+    image: olist-spark-iceberg
+    container_name: spark-iceberg
+
+    depends_on:
+      - rest
+      - minio
+
+    networks:
+      - iceberg-net
+
+    volumes:
+      - ./warehouse:/home/iceberg/warehouse
+      - ./notebooks:/home/iceberg/notebooks/notebooks
+      - ./:/home/iceberg/project
+
+    environment:
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_REGION: us-east-1
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: admin
+      MINIO_SECRET_KEY: password
+      MINIO_BUCKET: olist-lake
+      ICEBERG_CATALOG_URI: http://rest:8181
+      ICEBERG_S3_ENDPOINT: http://minio:9000
+      PYTHONPATH: /home/iceberg/project:/opt/spark/python:/opt/spark/python/lib/py4j-0.10.9.7-src.zip
+
+    ports:
+      - "8888:8888"
+      - "8080:8080"
+      - "10000:10000"
+      - "10001:10001"
+
+  rest:
+    image: apache/iceberg-rest-fixture:latest
+    container_name: iceberg-rest
+
+    networks:
+      - iceberg-net
+
+    ports:
+      - "8181:8181"
+
+    environment:
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_REGION: us-east-1
+      CATALOG_WAREHOUSE: s3://warehouse/
+      CATALOG_IO__IMPL: org.apache.iceberg.aws.s3.S3FileIO
+      CATALOG_S3_ENDPOINT: http://minio:9000
+
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+
+    networks:
+      iceberg-net:
+        aliases:
+          - warehouse.minio
+          - olist-lake.minio
+
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: password
+      MINIO_DOMAIN: minio
+
+    command:
+      - server
+      - /data
+      - --console-address
+      - ":9001"
+
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+
+    volumes:
+      - minio-data:/data
+
+
+  mc:
+    image: minio/mc:latest
+    container_name: minio-client
+
+    depends_on:
+      - minio
+
+    networks:
+      - iceberg-net
+
+    environment:
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_REGION: us-east-1
+
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 admin password; do sleep 1; done;
+      mc mb --ignore-existing local/warehouse;
+      mc mb --ignore-existing local/olist-lake;
+      tail -f /dev/null
+      "
+
+
+networks:
+  iceberg-net:
+    driver: bridge
+
+
+volumes:
+  minio-data:
